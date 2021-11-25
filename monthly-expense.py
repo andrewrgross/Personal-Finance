@@ -28,15 +28,15 @@ savingsA  = pd.read_csv('C:/Users/grossar/Downloads/arg savings.csv')
 checkingS = pd.read_csv('C:/Users/grossar/Downloads/mcgross checking.csv')
 savingsS  = pd.read_csv('C:/Users/grossar/Downloads/mcgross savings.csv')
 
-creditA
-creditS
+#creditA
+#creditS
 
 ### 2 - Formatting
 ### 2.1 - Subset columns of interest
-checkingA = checkingA.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Transaction Type','Extended Description']]
-savingsA = savingsA.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Transaction Type','Extended Description']]
-checkingS = checkingS.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Transaction Type','Extended Description']]
-savingsS = savingsS.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Transaction Type','Extended Description']]
+checkingA = checkingA.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Extended Description']]
+savingsA = savingsA.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Extended Description']]
+checkingS = checkingS.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Extended Description']]
+savingsS = savingsS.loc[:,['Effective Date','Amount','Balance','Transaction Category','Type','Extended Description']]
 
 ### 2.2 - Convert date strings to date objects
 savingsA['Effective Date'] = pd.to_datetime(savingsA['Effective Date'], format = '%m/%d/%Y')
@@ -44,7 +44,20 @@ checkingA['Effective Date'] = pd.to_datetime(checkingA['Effective Date'], format
 savingsS['Effective Date'] = pd.to_datetime(savingsS['Effective Date'], format = '%m/%d/%Y')
 checkingS['Effective Date'] = pd.to_datetime(checkingS['Effective Date'], format = '%m/%d/%Y')
 
-### 2.3 - Add week number
+### 2.3 - Remove transactions of less than a dollar
+
+def rmUnderDollar(dataframe):
+    nRows = dataframe.shape[0]
+    dataframe = dataframe.loc[abs(dataframe['Amount']) > 1]
+    print('Removed ' + str(nRows - dataframe.shape[0]) + ' of ' + str(nRows) + ' rows')
+    return(dataframe)
+
+checkingA = rmUnderDollar(checkingA)
+savingsA  = rmUnderDollar(savingsA)
+checkingS = rmUnderDollar(checkingS)
+savingsS  = rmUnderDollar(savingsS)
+
+### 2.4 - Add week number
 
 def addWeekNum(dataframe):
     weekList = []
@@ -61,9 +74,7 @@ savingsS  = addWeekNum(savingsS)
 ### Summarize weeks
 dataframeSummary = pd.DataFrame(columns = ['Year', 'Week', 'Transactions', 'Inflow', 'Outflow', 'Min-Balance', 'Max-Balance'])
 
-
 newRow = pd.DataFrame(columns = ['Year', 'Week', 'Transactions', 'Inflow', 'Outflow', 'Min-Balance', 'Max-Balance'])
-
 
 for rowNum in range(0,dataframe.shape[0]):
     ### Identify the week of the current row
