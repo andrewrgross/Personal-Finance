@@ -34,8 +34,13 @@ creditA   = pd.read_csv('creditA.csv')
 creditS   = pd.read_csv('creditS-2020-21.csv')
 investsS  = pd.read_csv('investmentsS1.csv')
 
-
 ### 2 - Formatting
+
+# Assign transfers to Type
+
+checkingS['Card Member'] == ''
+checkingS['Type'].loc[checkingS['Transaction Category'] == 'Transfer'] = 'Transfer'
+
 ### 2.1 - Subset columns of interest
 checkingA = checkingA.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
 savingsA  = savingsA.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
@@ -83,6 +88,10 @@ creditS = addBalance(creditS)
 ### 2.5 - Add Type column to USBank
 creditA['Type'] = 'USBank_Purchase'
 creditA['Type'].loc[creditA['Amount']>0] = 'BILL_PAYMENT'
+transferList = []
+for entry in savingsS['Description']:
+    transferList.append('Transfer' in entry)
+
 
 ### 2.5 - Add Card memeber to each
 checkingA['Card Member'] = 'Andrew_checking'
@@ -99,8 +108,20 @@ savingsS  = savingsS.reindex(columns = ['Date','Amount','Balance','Description',
 creditA  = creditA.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
 creditS  = creditS.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
 
+### 2.7 - Remove transactions of less than a dollar
 
-### 2.7 - Add week number
+def rmUnderDollar(dataframe):
+    nRows = dataframe.shape[0]
+    dataframe = dataframe.loc[abs(dataframe['Amount']) > 1]
+    print('Removed ' + str(nRows - dataframe.shape[0]) + ' of ' + str(nRows) + ' rows')
+    return(dataframe)
+
+checkingA = rmUnderDollar(checkingA)
+savingsA  = rmUnderDollar(savingsA)
+checkingS = rmUnderDollar(checkingS)
+savingsS  = rmUnderDollar(savingsS)
+
+### 2.8 - Add week number
 
 def addWeekNum(dataframe):
     weekList = []
@@ -116,6 +137,7 @@ savingsS  = addWeekNum(savingsS)
 creditA   = addWeekNum(creditA)
 creditS   = addWeekNum(creditS)
 
+####### 3 - Plot
 ### 3.1 - plot
 
 plt.plot(checkingA['Date'], checkingA['Balance'])
@@ -144,12 +166,23 @@ inflowS = inflowS.loc[inflowS['Type']!='Transfer']
 test.reindex(inflowS)
 test = inflowS.loc[i]
 
+### Sum of outflow
+creditOutA = creditA.loc[creditA['Amount']<0]
+creditOutA = creditOutA.loc[creditOutA['Date'] > datetime(2020,11,27)]
+sum(creditOutA['Amount'])
+
+creditOutS = creditS.loc[creditS['Amount']<0]
+creditOutS = creditOutS.loc[creditOutS['Date'] > datetime(2020,11,27)]
+sum(creditOutS['Amount'])
+
+### Categorize AmEx spending
+categories = np.array(creditS['Type'])
+creditS['Type'].unique()
+
 ###Summarize weeks
 dataframeSummary = pd.DataFrame(columns = ['Year', 'Week', 'Transactions', 'Inflow', 'Outflow', 'Min-Balance', 'Max-Balance'])
 
-
 newRow = pd.DataFrame(columns = ['Year', 'Week', 'Transactions', 'Inflow', 'Outflow', 'Min-Balance', 'Max-Balance'])
-
 
 for rowNum in range(0,dataframe.shape[0]):
     ### Identify the week of the current row
