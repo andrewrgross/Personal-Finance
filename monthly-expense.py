@@ -10,8 +10,10 @@ Created on Tue Nov 23 15:01:51 2021
 ### 0 - Header
 import numpy as np
 import pandas as pd
-from datetime import datetime
+import datetime
+#from datetime import datetime  # is this necessary?
 import matplotlib.pyplot as plt
+import math
 import os
 import sys
 
@@ -31,14 +33,14 @@ savingsA  = pd.read_csv('arg savings.csv')
 checkingS = pd.read_csv('mcgross checking.csv')
 savingsS  = pd.read_csv('mcgross savings.csv')
 creditA   = pd.read_csv('creditA.csv')
-creditS   = pd.read_csv('creditS-2020-21.csv')
+creditS   = pd.read_csv('creditS.csv')
 investsS  = pd.read_csv('investmentsS1.csv')
 
 ### 2 - Formatting
 
 # Assign transfers to Type
 
-checkingS['Card Member'] == ''
+checkingS['Card Member'] = ''
 checkingS['Type'].loc[checkingS['Transaction Category'] == 'Transfer'] = 'Transfer'
 
 ### 2.1 - Subset columns of interest
@@ -130,27 +132,221 @@ def addWeekNum(dataframe):
     dataframe['Week'] = weekList
     return(dataframe)
 
-checkingA = addWeekNum(checkingA)
-savingsA  = addWeekNum(savingsA)
-checkingS = addWeekNum(checkingS)
-savingsS  = addWeekNum(savingsS)
-creditA   = addWeekNum(creditA)
-creditS   = addWeekNum(creditS)
+def addWeeksAgo(dataframe):
+    today = datetime.datetime.today()
+    lastSun = today - datetime.timedelta(today.weekday() +1 %7)
+    weekList = []
+    for rowNum in dataframe['Date']:
+        weeksAgo = math.floor((lastSun - rowNum).days/7)
+        weekList.append(weeksAgo)
+    dataframe['WeeksAgo'] = weekList
+    return(dataframe)
+        
+checkingA = addWeeksAgo(checkingA)
+savingsA  = addWeeksAgo(savingsA)
+checkingS = addWeeksAgo(checkingS)
+savingsS  = addWeeksAgo(savingsS)
+creditA   = addWeeksAgo(creditA)
+creditS   = addWeeksAgo(creditS)
+
+### 2.9 - Trim all to same start
+
+checkingA = checkingA.loc[checkingA['Date'] > datetime.datetime(2020, 1, 1, 1, 1)]
+checkingS = checkingS.loc[checkingS['Date'] > datetime.datetime(2020, 1, 1, 1, 1)]
+savingsA  = savingsA.loc[savingsA['Date']   > datetime.datetime(2020, 1, 1, 1, 1)]
+savingsS  = savingsS.loc[savingsS['Date']   > datetime.datetime(2020, 1, 1, 1, 1)]
+creditA   = creditA.loc[creditA['Date']     > datetime.datetime(2020, 1, 1, 1, 1)]
+creditS   = creditS.loc[creditS['Date']     > datetime.datetime(2020, 1, 1, 1, 1)]
+
+### 2.10 - Remove the transfer to investment
+checkingA.loc[checkingA['Amount'] == -3000]
+investmentRow = 103
+checkingA['Balance'].iloc[0:investmentRow] = checkingA['Balance'].iloc[0:investmentRow] + 3000
 
 ####### 3 - Plot
 ### 3.1 - plot
 
-plt.plot(checkingA['Date'], checkingA['Balance'])
-plt.plot(checkingS['Date'], checkingS['Balance'])
-plt.plot(savingsA['Date'], savingsA['Balance'])
-plt.plot(savingsS['Date'], savingsS['Balance'])
+### 3.1.1 - Plot checking account balances
+fig, ax = plt.subplots()
+ax.plot(checkingA['WeeksAgo'], checkingA['Balance'], label = 'Checking, Personal')
+ax.plot(checkingS['WeeksAgo'], checkingS['Balance'], label = 'Checking, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+ax.legend()
+plt.show()
 
-plt.plot(creditA['Date'], creditA['Balance'])
-plt.plot(creditS['Date'], creditS['Balance'])
+### 3.1.1 - Plot SAVINGS account balances
+fig, ax = plt.subplots()
+ax.plot(savingsA['WeeksAgo'], savingsA['Balance'], label = 'savings, Personal')
+ax.plot(savingsS['WeeksAgo'], savingsS['Balance'], label = 'savings, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+plt.xlim([104,0])
+ax.legend()
+plt.show()
+
+### 3.1.1 - Plot CREDIT CARD DEBT balances
+fig, ax = plt.subplots()
+ax.plot(creditA['WeeksAgo'], creditA['Balance'], label = 'Credit card debt, Personal')
+ax.plot(creditS['WeeksAgo'], creditS['Balance'], label = 'Credit card debt, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+ax.legend()
+plt.axis([104,0, min(creditS['Balance']), max(creditS['Balance'])])
+plt.show()
 
 
+####### 4 - Analyze changes over time
+### 4.1 - Summarize by week for each data source
 
-### 4.1 - Analyze
+# find the range of weeks for a dataframe
+
+def summarizeWeeks(dataframe, balanceFinal):
+    dataframeSummary = pd.DataFrame(columns = ['Date', 'WeeksAgo', 'balanceStart', 'balanceFinal','nOutflow', 'totalOutflow', 'nInflow', 'totalInflow', 'transactions', 'Amount'])
+    weekRange = range(min(dataframe['WeeksAgo']), max(dataframe['WeeksAgo'] + 1))
+    balanceStart = balanceFinal
+    for week in weekRange:
+        date = (today - datetime.timedelta(weeks = week)).strftime("%b %d %Y")
+        #balanceStart = balanceFinal
+        balanceFinal = balanceStart
+        #print('Week: ' + str(week))
+        rowsSelected = dataframe['WeeksAgo'] == week
+        subset = dataframe.loc[rowsSelected]
+        if len(subset) == 0:
+            newRow = pd.DataFrame({'Date': [date], 'WeeksAgo': [week], 'balanceStart': [balanceStart], 'balanceFinal': [balanceFinal],'nOutflow': [0], 'totalOutflow': [0], 'nInflow': [0], 'totalInflow': [0], 'transactions': [0], 'Amount': [0]})
+        else:
+            ### Save key stats:
+            outflows = subset.loc[subset['Amount'] <0]['Amount']
+            totalOutflow = sum(outflows)
+            nOutflow = len(outflows)
+            
+            inflows  = subset.loc[subset['Amount'] >0]['Amount']
+            totalInflow = sum(inflows)
+            nInflow = len(inflows)
+        
+            transactions = len(subset)
+            change = sum(subset['Amount'])
+            #balanceFinal = balanceStart + change
+            balanceStart = balanceFinal - change
+            newRow = pd.DataFrame({'Date': [date], 'WeeksAgo': [week], 'balanceStart': [balanceStart], 'balanceFinal': [balanceFinal],'nOutflow': [nOutflow], 'totalOutflow': [totalOutflow], 'nInflow': [nInflow], 'totalInflow': [totalInflow], 'transactions': [transactions], 'Amount': [change]})
+    
+        dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
+
+    #startingBalance = -dataframeSummary['balanceFinal'][0]
+    return(dataframeSummary)
+
+summaryCheckA = summarizeWeeks(checkingA, checkingA['Balance'][0])
+summaryCheckS = summarizeWeeks(checkingS, checkingS['Balance'][0])
+summarySavA   = summarizeWeeks(savingsA,  savingsA['Balance'][0])
+summarySavS   = summarizeWeeks(savingsS,  savingsS['Balance'][0])
+summaryCCA    = summarizeWeeks(creditA,   creditA['Balance'].iloc[0])
+summaryCCS    = summarizeWeeks(creditS,   creditS['Balance'].iloc[0])
+
+
+### 4.1.1 - Test summarization with plot
+fig, ax = plt.subplots()
+ax.plot(summaryCheckA['WeeksAgo'], summaryCheckA['balanceFinal'], label = 'Checking, Personal')
+ax.plot(summaryCheckS['WeeksAgo'], summaryCheckS['balanceFinal'], label = 'Checking, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+plt.xlim([104,0])
+ax.legend()
+plt.show()
+
+### 4.2.1 - Join checking summaries
+checking = pd.concat([checkingA, checkingS], ignore_index = True, axis = 0)
+checking = checking.sort_values(['Date'], ascending = False)
+checkingSum = checkingA['Balance'].iloc[0] + checkingS['Balance'].iloc[0]
+summaryChecking = summarizeWeeks(checking, balanceFinal = checkingSum)
+### 4.2.2 - Plot joined checking summaries
+fig, ax = plt.subplots()
+ax.plot(summaryCheckA['WeeksAgo'], summaryCheckA['balanceFinal'], label = 'Checking, Personal')
+ax.plot(summaryCheckS['WeeksAgo'], summaryCheckS['balanceFinal'], label = 'Checking, Shared')
+ax.plot(summaryChecking['WeeksAgo'], summaryChecking['balanceFinal'], label = 'Checking, All')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+plt.xlim([104,0])
+ax.legend()
+plt.show()
+
+### 4.2.3 - Join savings summaries
+savings = pd.concat([savingsA, savingsS], ignore_index = True, axis = 0)
+savings = savings.sort_values(['Date'], ascending = False)
+savingsSum = savingsA['Balance'].iloc[0] + savingsS['Balance'].iloc[0]
+summarySav = summarizeWeeks(savings, balanceFinal = savingsSum)
+
+### 4.2.4 - Plot joined savings summaries
+fig, ax = plt.subplots()
+ax.plot(summarySavA['WeeksAgo'], summarySavA['balanceFinal'], label = 'Savings, Personal')
+ax.plot(summarySavS['WeeksAgo'], summarySavS['balanceFinal'], label = 'Savings, Shared')
+ax.plot(summarySav['WeeksAgo'], summarySav['balanceFinal'], label = 'Savings, All')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+plt.xlim([104,0])
+ax.legend()
+plt.show()
+
+### 4.2.5 - Join credit card debt summaries
+credit = pd.concat([creditA, creditS], ignore_index = True, axis = 0)
+credit = credit.sort_values(['Date'], ascending = False)
+creditSum = creditA['Balance'].iloc[0] + creditS['Balance'].iloc[0]
+summaryCredit = summarizeWeeks(credit, balanceFinal = creditSum)
+### 4.2.5 - Plot joined credit card debt summaries
+fig, ax = plt.subplots()
+ax.plot(summaryCCA['WeeksAgo'], summaryCCA['balanceFinal'], label = 'Credit, Personal')
+ax.plot(summaryCCS['WeeksAgo'], summaryCCS['balanceFinal'], label = 'Credit, Shared')
+ax.plot(summaryCredit['WeeksAgo'], summaryCredit['balanceFinal'], label = 'Credit, All')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+plt.xlim([104,0])
+ax.legend()
+plt.show()
+
+### 4.3 - Join all accounts
+allAccounts = pd.concat([summaryChecking, summarySav, summaryCredit], ignore_index = True, axis = 0)
+allAccounts = allAccounts.sort_values(['Date'], ascending = False)
+allSum = summaryChecking['balanceFinal'].iloc[0] + summarySav['balanceFinal'].iloc[0] + summaryCredit['balanceFinal'].iloc[0]
+summaryAll = summarizeWeeks(allAccounts, balanceFinal = allSum)
+
+fig, ax = plt.subplots()
+plt.gcf().set_size_inches(12, 8)
+ax.plot(summaryChecking['Date'], summaryChecking['balanceFinal'], label = 'Checking', color = 'lightblue', linewidth = 2)
+ax.plot(summarySav['Date'], summarySav['balanceFinal'], label = 'Savings', color = 'lightgreen', linewidth = 2)
+ax.plot(summaryCredit['Date'], summaryCredit['balanceFinal'], label = 'Credit card debt', color = 'orange', linewidth = 1)
+ax.plot(summaryAll['Date'], summaryAll['balanceFinal'], label = 'All', color = 'navy', linewidth = 4)
+plt.axhline(y = 0, color = 'black', linewidth = 1)
+ax.set_xlabel('Date',  fontsize = 16)
+ax.set_ylabel('Dollars', fontsize = 16)
+ax.set_title('Balance over time', fontsize = 20)
+ax.invert_xaxis()
+plt.xticks(fontsize= 11, rotation = -30)
+ax.yaxis.grid()
+ax.xaxis.grid()
+plt.xlim([104,0])
+plt.ylim([-6000,20000])
+#ax.set_xticks([0,10,20,30])
+ax.xaxis.set_major_locator(plt.MaxNLocator(20))
+ax.legend(loc=2, prop={'size': 12})
+plt.show()
+
+################################################
+############ IN PROGRESS ######################
+################################################
+
 ### Sum of inflow over a year
 inflow = checkingA.loc[checkingA['Amount']>0]
 cutoff = datetime(2020,11,27)
@@ -179,7 +375,57 @@ sum(creditOutS['Amount'])
 categories = np.array(creditS['Type'])
 creditS['Type'].unique()
 
+
+
+### 3 - Analysis
+
+### For each week, determine the min, max, and number of withdrawls and deposits
+### Identify the range covered in the data
+dateStart = 
+### Create a data frame with a row for each week
+
+### 4 - Plotting
+
+
+
+### 5 - Output
+
+
+#### PRIOR CODE (DEPRECIATED)
 ###Summarize weeks
+
+
+def summarizeWeeks(dataframe):
+    dataframeSummary = pd.DataFrame(columns = ['WeeksAgo', 'balanceMin', 'balanceMax', 'balanceFinal','nOutflow', 'totalOutflow', 'nInflow', 'totalInflow', 'transactions'])
+    weekRange = range(min(dataframe['WeeksAgo']), max(dataframe['WeeksAgo'] + 1))
+    for week in weekRange:
+        print('Week: ' + str(week))
+        rowsSelected = dataframe['WeeksAgo'] == week
+        subset = dataframe.loc[rowsSelected]
+        if len(subset) == 0:
+            newRow = pd.DataFrame({'WeeksAgo': [week], 'balanceMin': [balanceMin], 'balanceMax': [balanceMax], 'balanceFinal': [balanceFinal],'nOutflow': [0], 'totalOutflow': [0], 'nInflow': [0], 'totalInflow': [0], 'transactions': [0]})
+        else:
+            ### Save key stats:
+            balanceMin = min(subset['Balance'])
+            balanceMax = max(subset['Balance'])
+            balanceFinal = subset['Balance'].iloc[0]
+            outflows = subset.loc[subset['Amount'] <0]['Amount']
+            totalOutflow = sum(outflows)
+            nOutflow = len(outflows)
+            
+            inflows  = subset.loc[subset['Amount'] >0]['Amount']
+            totalInflow = sum(inflows)
+            nInflow = len(inflows)
+        
+            transactions = len(subset)
+            newRow = pd.DataFrame({'WeeksAgo': [week], 'balanceMin': [balanceMin], 'balanceMax': [balanceMax], 'balanceFinal': [balanceFinal],'nOutflow': [nOutflow], 'totalOutflow': [totalOutflow], 'nInflow': [nInflow], 'totalInflow': [totalInflow], 'transactions': [transactions]})
+    
+        dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
+    return(dataframeSummary)
+
+
+
+
 dataframeSummary = pd.DataFrame(columns = ['Year', 'Week', 'Transactions', 'Inflow', 'Outflow', 'Min-Balance', 'Max-Balance'])
 
 newRow = pd.DataFrame(columns = ['Year', 'Week', 'Transactions', 'Inflow', 'Outflow', 'Min-Balance', 'Max-Balance'])
@@ -215,17 +461,3 @@ for rowNum in range(0,dataframe.shape[0]):
     newRow = pd.DataFrame({'Year' : [year], 'Week' : [week], 'Transactions' : [transactions], 'Inflow' : [inflow], 'Outflow' : [outflow], 'Min-Balance' : [minBalance], 'Max-Balance' : [maxBalance]})
     dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
     
-
-
-### 3 - Analysis
-
-### For each week, determine the min, max, and number of withdrawls and deposits
-### Identify the range covered in the data
-dateStart = 
-### Create a data frame with a row for each week
-
-### 4 - Plotting
-
-
-
-### 5 - Output
