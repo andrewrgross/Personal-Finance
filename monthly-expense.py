@@ -13,6 +13,8 @@ import pandas as pd
 import datetime
 #from datetime import datetime  # is this necessary?
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.ticker as mtick
 import math
 import os
 import sys
@@ -23,56 +25,7 @@ pd.set_option('display.max_columns', 20)
 pd.set_option('display.width', 200)
 np.set_printoptions(edgeitems=3, infstr='inf',linewidth=200, nanstr='nan', precision=8,suppress=False, threshold=1000, formatter=None)
 
-
-### 1 - Input
-#os.chdir('C:/Users/grossar/Downloads/')
-os.chdir('/home/andrew/Projects/Personal-Finance')
-
-checkingA = pd.read_csv('arg checking.csv')
-savingsA  = pd.read_csv('arg savings.csv')
-checkingS = pd.read_csv('mcgross checking.csv')
-savingsS  = pd.read_csv('mcgross savings.csv')
-creditA   = pd.read_csv('creditA.csv')
-creditS   = pd.read_csv('creditS.csv')
-investsS  = pd.read_csv('investmentsS1.csv')
-
-### 2 - Formatting
-
-# Assign transfers to Type
-
-checkingS['Card Member'] = ''
-checkingS['Type'].loc[checkingS['Transaction Category'] == 'Transfer'] = 'Transfer'
-
-### 2.1 - Subset columns of interest
-checkingA = checkingA.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
-savingsA  = savingsA.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
-checkingS = checkingS.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
-savingsS  = savingsS.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
-creditA   = creditA.loc[:,['Date','Amount','Name']]
-creditS   = creditS.loc[:,['Date','Amount','Description','Category','Card Member']]
-investsS   = investsS.loc[:,['Trade Date', 'Net Amount', 'Transaction Description']]
-
-### 2.2 - Rename columns
-checkingA.columns = ['Date','Amount','Balance','Description','Type']
-checkingS.columns = ['Date','Amount','Balance','Description','Type']
-savingsA.columns = ['Date','Amount','Balance','Description','Type']
-savingsS.columns = ['Date','Amount','Balance','Description','Type']
-creditA.columns  = ['Date','Amount','Description']
-creditS.columns  = ['Date','Amount','Description','Type','Card Member']
-investsS.columns = ['Date','Amount','Description']
-
-### 2.3 - Convert date strings to date objects
-savingsA['Date']  = pd.to_datetime(savingsA['Date'], format = '%m/%d/%Y')
-checkingA['Date'] = pd.to_datetime(checkingA['Date'], format = '%m/%d/%Y')
-savingsS['Date']  = pd.to_datetime(savingsS['Date'], format = '%m/%d/%Y')
-checkingS['Date'] = pd.to_datetime(checkingS['Date'], format = '%m/%d/%Y')
-creditA['Date'] = pd.to_datetime(creditA['Date'], format = '%Y-%m-%d')
-creditS['Date'] = pd.to_datetime(creditS['Date'], format = '%m/%d/%Y')
-investsS['Date'] = pd.to_datetime(creditS['Date'], format = '%m/%d/%Y')
-
-### 2.4 - Add Balance columns to credit
-creditA.sort_values(by = 'Date', ascending = False, inplace = True)
-creditS['Amount'] = np.array(creditS['Amount'])*-1
+### 0.2 - Functions
 
 def addBalance(dataframe):
     balance = []
@@ -84,46 +37,11 @@ def addBalance(dataframe):
     dataframe['Balance'] = balance
     return(dataframe)
 
-creditA = addBalance(creditA)
-creditS = addBalance(creditS)
-
-### 2.5 - Add Type column to USBank
-creditA['Type'] = 'USBank_Purchase'
-creditA['Type'].loc[creditA['Amount']>0] = 'BILL_PAYMENT'
-transferList = []
-for entry in savingsS['Description']:
-    transferList.append('Transfer' in entry)
-
-
-### 2.5 - Add Card memeber to each
-checkingA['Card Member'] = 'Andrew_checking'
-savingsA['Card Member']  = 'Andrew_savings'
-checkingS['Card Member'] = 'Shared_checking'
-savingsS['Card Member']  = 'Shared_savings'
-creditA['Card Member']   = 'Andrew_cc'
-
-### 2.6 - Reorder Columns (again)
-checkingA = checkingA.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'], copy = False)
-checkingS = checkingS.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
-savingsA  = savingsA.reindex(columns = ['Date','Amount','Balance','Description','Type','Card Member'])
-savingsS  = savingsS.reindex(columns = ['Date','Amount','Balance','Description','Type','Card Member'])
-creditA  = creditA.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
-creditS  = creditS.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
-
-### 2.7 - Remove transactions of less than a dollar
-
 def rmUnderDollar(dataframe):
     nRows = dataframe.shape[0]
     dataframe = dataframe.loc[abs(dataframe['Amount']) > 1]
     print('Removed ' + str(nRows - dataframe.shape[0]) + ' of ' + str(nRows) + ' rows')
     return(dataframe)
-
-checkingA = rmUnderDollar(checkingA)
-savingsA  = rmUnderDollar(savingsA)
-checkingS = rmUnderDollar(checkingS)
-savingsS  = rmUnderDollar(savingsS)
-
-### 2.8 - Add week number
 
 def addWeekNum(dataframe):
     weekList = []
@@ -142,26 +60,166 @@ def addWeeksAgo(dataframe):
     dataframe['WeeksAgo'] = weekList
     return(dataframe)
         
+def summarizeWeeks(dataframe, balanceFinal):
+    today = datetime.datetime.today()
+    dataframeSummary = pd.DataFrame(columns = ['Date', 'WeeksAgo', 'balanceStart', 'balanceFinal','nOutflow', 'totalOutflow', 'nInflow', 'totalInflow', 'transactions', 'Amount'])
+    weekRange = range(min(dataframe['WeeksAgo']), max(dataframe['WeeksAgo'] + 1))
+    balanceStart = balanceFinal
+    for week in weekRange:
+        date = (today - datetime.timedelta(weeks = week)).date() #.strftime("%b %d %Y")
+        #balanceStart = balanceFinal
+        balanceFinal = balanceStart
+        #print('Week: ' + str(week))
+        rowsSelected = dataframe['WeeksAgo'] == week
+        subset = dataframe.loc[rowsSelected]
+        if len(subset) == 0:
+            newRow = pd.DataFrame({'Date': [date], 'WeeksAgo': [week], 'balanceStart': [balanceStart], 'balanceFinal': [balanceFinal],'nOutflow': [0], 'totalOutflow': [0], 'nInflow': [0], 'totalInflow': [0], 'transactions': [0], 'Amount': [0]})
+        else:
+            ### Save key stats:
+            outflows = subset.loc[subset['Amount'] <0]['Amount']
+            totalOutflow = sum(outflows)
+            nOutflow = len(outflows)
+            
+            inflows  = subset.loc[subset['Amount'] >0]['Amount']
+            totalInflow = sum(inflows)
+            nInflow = len(inflows)
+        
+            transactions = len(subset)
+            change = sum(subset['Amount'])
+            #balanceFinal = balanceStart + change
+            balanceStart = balanceFinal - change
+            newRow = pd.DataFrame({'Date': [date], 'WeeksAgo': [week], 'balanceStart': [balanceStart], 'balanceFinal': [balanceFinal],'nOutflow': [nOutflow], 'totalOutflow': [totalOutflow], 'nInflow': [nInflow], 'totalInflow': [totalInflow], 'transactions': [transactions], 'Amount': [change]})
+    
+        dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
+
+    #startingBalance = -dataframeSummary['balanceFinal'][0]
+    return(dataframeSummary)
+
+### 1 - Input
+#os.chdir('C:/Users/grossar/Downloads/')
+os.chdir('/home/andrew/Projects/Personal-Finance')
+
+checkingA = pd.read_csv('arg checking.csv')
+savingsA  = pd.read_csv('arg savings.csv')
+checkingS = pd.read_csv('mcgross checking.csv')
+savingsS  = pd.read_csv('mcgross savings.csv')
+creditA   = pd.read_csv('creditA.csv')
+creditS   = pd.read_csv('creditS.csv')
+investVan  = pd.read_csv('investVan.csv', header = 3)
+
+### 2 - Formatting
+
+# Assign transfers to Type
+
+checkingS['Card Member'] = ''
+checkingS['Type'].loc[checkingS['Transaction Category'] == 'Transfer'] = 'Transfer'
+
+### 2.1 - Subset columns of interest
+checkingA = checkingA.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
+savingsA  = savingsA.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
+checkingS = checkingS.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
+savingsS  = savingsS.loc[:,['Effective Date','Amount','Balance', 'Description','Type']]
+creditA   = creditA.loc[:,['Date','Amount','Name']]
+creditS   = creditS.loc[:,['Date','Amount','Description','Category','Card Member']]
+investVan   = investVan.loc[:,['Trade Date', 'Net Amount', 'Transaction Description', 'Transaction Type']]
+
+### 2.2 - Rename columns
+checkingA.columns = ['Date','Amount','Balance','Description','Type']
+checkingS.columns = ['Date','Amount','Balance','Description','Type']
+savingsA.columns = ['Date','Amount','Balance','Description','Type']
+savingsS.columns = ['Date','Amount','Balance','Description','Type']
+creditA.columns  = ['Date','Amount','Description']
+creditS.columns  = ['Date','Amount','Description','Type','Card Member']
+investVan.columns = ['Date','Amount','Description', 'Type']
+
+### 2.3 - Convert date strings to date objects
+savingsA['Date']  = pd.to_datetime(savingsA['Date'], format = '%m/%d/%Y')
+checkingA['Date'] = pd.to_datetime(checkingA['Date'], format = '%m/%d/%Y')
+savingsS['Date']  = pd.to_datetime(savingsS['Date'], format = '%m/%d/%Y')
+checkingS['Date'] = pd.to_datetime(checkingS['Date'], format = '%m/%d/%Y')
+creditA['Date'] = pd.to_datetime(creditA['Date'], format = '%Y-%m-%d')
+creditS['Date'] = pd.to_datetime(creditS['Date'], format = '%m/%d/%Y')
+investVan['Date'] = pd.to_datetime(investVan['Date'], format = '%m/%d/%Y')
+
+### 2.4 - Add Balance columns
+###### to credit
+creditA.sort_values(by = 'Date', ascending = False, inplace = True)
+creditS['Amount'] = np.array(creditS['Amount'])*-1
+
+creditA = addBalance(creditA)
+creditS = addBalance(creditS)
+
+###### to investment
+typeCol = np.array(investVan['Type'])
+rowsToKeep = np.array(typeCol != 'Buy') * np.array(typeCol != 'Sweep in') * np.array(typeCol != 'Sweep out') * np.array(typeCol != 'Reinvestment') * np.array(typeCol != 'Reinvestment (LT gain)') * np.array(typeCol != 'Reinvestment (ST gain)') 
+investVan  = investVan.loc[rowsToKeep]
+balance = []
+newBalance = 0
+for amount in np.flip(investVan['Amount']):
+    newBalance = round(newBalance + amount, 2)
+    balance.append(newBalance)
+
+investVan['Balance'] = np.flip(balance)
+
+### 2.5 - Add Type column to USBank
+creditA['Type'] = 'USBank_Purchase'
+creditA['Type'].loc[creditA['Amount']>0] = 'BILL_PAYMENT'
+transferList = []
+for entry in savingsS['Description']:
+    transferList.append('Transfer' in entry)
+
+
+### 2.5 - Add Card memeber to each
+checkingA['Card Member'] = 'Andrew_checking'
+savingsA['Card Member']  = 'Andrew_savings'
+checkingS['Card Member'] = 'Shared_checking'
+savingsS['Card Member']  = 'Shared_savings'
+creditA['Card Member']   = 'Andrew_cc'
+investVan['CardMember']  = 'Vanguard'
+
+### 2.6 - Reorder Columns (again)
+checkingA = checkingA.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'], copy = False)
+checkingS = checkingS.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
+savingsA  = savingsA.reindex(columns = ['Date','Amount','Balance','Description','Type','Card Member'])
+savingsS  = savingsS.reindex(columns = ['Date','Amount','Balance','Description','Type','Card Member'])
+creditA  = creditA.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
+creditS  = creditS.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
+investVan= investVan.reindex(columns= ['Date','Amount','Balance','Description','Type','Card Member'])
+
+### 2.7 - Remove transactions of less than a dollar
+
+checkingA = rmUnderDollar(checkingA)
+savingsA  = rmUnderDollar(savingsA)
+checkingS = rmUnderDollar(checkingS)
+savingsS  = rmUnderDollar(savingsS)
+
+### 2.8 - Add week number
+
 checkingA = addWeeksAgo(checkingA)
 savingsA  = addWeeksAgo(savingsA)
 checkingS = addWeeksAgo(checkingS)
 savingsS  = addWeeksAgo(savingsS)
 creditA   = addWeeksAgo(creditA)
 creditS   = addWeeksAgo(creditS)
+investVan = addWeeksAgo(investVan)
 
 ### 2.9 - Trim all to same start
 
-checkingA = checkingA.loc[checkingA['Date'] > datetime.datetime(2020, 1, 1, 1, 1)]
-checkingS = checkingS.loc[checkingS['Date'] > datetime.datetime(2020, 1, 1, 1, 1)]
-savingsA  = savingsA.loc[savingsA['Date']   > datetime.datetime(2020, 1, 1, 1, 1)]
-savingsS  = savingsS.loc[savingsS['Date']   > datetime.datetime(2020, 1, 1, 1, 1)]
-creditA   = creditA.loc[creditA['Date']     > datetime.datetime(2020, 1, 1, 1, 1)]
-creditS   = creditS.loc[creditS['Date']     > datetime.datetime(2020, 1, 1, 1, 1)]
+checkingA = checkingA.loc[checkingA['Date'] > datetime.datetime(2021, 1, 1, 1, 1)]
+checkingS = checkingS.loc[checkingS['Date'] > datetime.datetime(2021, 1, 1, 1, 1)]
+savingsA  = savingsA.loc[savingsA['Date']   > datetime.datetime(2021, 1, 1, 1, 1)]
+savingsS  = savingsS.loc[savingsS['Date']   > datetime.datetime(2021, 1, 1, 1, 1)]
+creditA   = creditA.loc[creditA['Date']     > datetime.datetime(2021, 1, 1, 1, 1)]
+creditS   = creditS.loc[creditS['Date']     > datetime.datetime(2021, 1, 1, 1, 1)]
+investVan = investVan.loc[creditS['Date']     > datetime.datetime(2021, 1, 1, 1, 1)]
+
+### 2.10 - Add a point for the current time
+
 
 ### 2.10 - Remove the transfer to investment
-checkingA.loc[checkingA['Amount'] == -3000]
-investmentRow = 103
-checkingA['Balance'].iloc[0:investmentRow] = checkingA['Balance'].iloc[0:investmentRow] + 3000
+#checkingA.loc[checkingA['Amount'] == -3000]
+#investmentRow = 103
+#checkingA['Balance'].iloc[0:investmentRow] = checkingA['Balance'].iloc[0:investmentRow] + 3000
 
 ####### 3 - Plot
 ### 3.1 - plot
@@ -203,48 +261,104 @@ plt.show()
 
 
 ####### 4 - Analyze changes over time
-### 4.1 - Summarize by week for each data source
+### 4.1 - Find the balance for each source
+balChecking = checkingA['Balance'].iloc[0] + checkingS['Balance'].iloc[0]
+balSavings  = savingsA['Balance'].iloc[0]  + savingsS['Balance'].iloc[0]
+balCredit   = creditA['Balance'].iloc[0]   + creditS['Balance'].iloc[0]
+balInvest   = investVan['Balance'].iloc[0]
+balTotal    = balChecking  +  balSavings  +  balCredit + balInvest
+
+print('Checking Balance: $' + str(balChecking))
+print('Savings Balance: $' + str(balSavings))
+print('Credit Balance: $' + str(balCredit))
+print('Investments Balance: $' + str(balInvest))
+print('TOTAL ACCOUNTS BALANCE: $' + str(balTotal))
+
+### 4.2 - Join ledgers
+checking = pd.concat([checkingA, checkingS], ignore_index = True, axis = 0)
+checking = checking.sort_values(['Date'], ascending = False)
+summaryChecking = summarizeWeeks(checking, balanceFinal = balChecking)
+
+
+savings = pd.concat([savingsA, savingsS], ignore_index = True, axis = 0)
+savings = savings.sort_values(['Date'], ascending = False)
+summarySav = summarizeWeeks(savings, balanceFinal = balSavings)
+
+
+credit = pd.concat([creditA, creditS], ignore_index = True, axis = 0)
+credit = credit.sort_values(['Date'], ascending = False)
+summaryCredit = summarizeWeeks(credit, balanceFinal = balCredit)
+
+invest = investVan
+summaryInvest = summarizeWeeks(invest, balanceFinal = balInvest)
+
+allAccts = pd.concat([checking, savings, credit, invest], ignore_index = True, axis = 0)
+allAccts = allAccts.sort_values(['Date'], ascending = False)
+summaryAll = summarizeWeeks(allAccts, balanceFinal = balTotal)
+
+### 4.3 - Plots
+###### 4.3.1 - Plot balance total over time
+fig, ax = plt.subplots(figsize = (12, 8))
+ax.plot(summaryInvest['Date'], summaryInvest['balanceFinal'], label = 'Investments', color = 'wheat')
+ax.plot(summarySav['Date'], summarySav['balanceFinal'], label = 'Savings', color = 'lightgreen')
+ax.plot(summaryCredit['Date'], summaryCredit['balanceFinal'], label = 'Credit', color = 'salmon')
+#ax.plot(checkingA['Date'], checkingA['Balance'], label = 'Checking, Andy', color = 'mediumorchid')
+#ax.plot(checkingS['Date'], checkingS['Balance'], label = 'Checking, Shared', color = 'blue')
+ax.plot(summaryChecking['Date'], summaryChecking['balanceFinal'], label = 'Checking', color = 'blue')
+ax.plot(summaryAll['Date'], summaryAll['balanceFinal'], label = 'All', color = 'navy', linewidth = 4)
+plt.axhline(y = 0, color = 'black', linewidth = 1)
+ax.set_xlabel('Date',  fontsize = 16)
+ax.set_ylabel('Dollars', fontsize = 16)
+ax.set_title('Balance over time', fontsize = 20)
+plt.xticks(fontsize= 11, rotation = -45)
+ax.yaxis.grid()
+ax.xaxis.grid()
+ax.xaxis.set_major_locator(mdates.MonthLocator())
+ax.yaxis.set_major_locator(mtick.LinearLocator(numticks = 14))
+ax.yaxis.set_major_locator(plt.MaxNLocator(12))
+ax.legend(loc=2, prop={'size': 12})
+plt.xlim([datetime.date(2021, 1, 1),datetime.datetime.now()])
+plt.ylim([-6000,20000])
+plt.show()
+
+
+###### 4.3.1 - Plot recent weeks
+fig, ax = plt.subplots(figsize = (12, 8))
+weeksAgo = summaryChecking['WeeksAgo'][0:10]
+checkingIn = summaryChecking['totalInflow'][0:10]
+checkingOut = summaryChecking['totalOutflow'][0:10]
+creditOut = summaryCredit['totalOutflow'][0:10]
+amountAll = summaryAll['balanceFinal'][0:10]
+amountCredit = summaryCredit['balanceFinal'][0:10]
+ax.bar(weeksAgo,checkingIn, color = 'blue')
+ax.bar(weeksAgo,creditOut, color = 'salmon')
+plt.axhline(y = 0, color = 'black', linewidth = 1)
+plt.axhline(y = 0, color = 'black', linewidth = 1)
+
+ax.set_xlabel('Weeks Ago',  fontsize = 16)
+ax.set_ylabel('Dollars', fontsize = 16)
+ax.set_title('Cashflow', fontsize = 20)
+plt.xlim([9,-2])
+plt.show()
+
+
+checkingA['Amount'] > 0
+
+checkingA.loc[checkingA['Amount'] > 0]
+checkingS.loc[checkingS['Amount'] > 0]
+
+
+
+
+
 
 # find the range of weeks for a dataframe
 
-def summarizeWeeks(dataframe, balanceFinal):
-    dataframeSummary = pd.DataFrame(columns = ['Date', 'WeeksAgo', 'balanceStart', 'balanceFinal','nOutflow', 'totalOutflow', 'nInflow', 'totalInflow', 'transactions', 'Amount'])
-    weekRange = range(min(dataframe['WeeksAgo']), max(dataframe['WeeksAgo'] + 1))
-    balanceStart = balanceFinal
-    for week in weekRange:
-        date = (today - datetime.timedelta(weeks = week)).strftime("%b %d %Y")
-        #balanceStart = balanceFinal
-        balanceFinal = balanceStart
-        #print('Week: ' + str(week))
-        rowsSelected = dataframe['WeeksAgo'] == week
-        subset = dataframe.loc[rowsSelected]
-        if len(subset) == 0:
-            newRow = pd.DataFrame({'Date': [date], 'WeeksAgo': [week], 'balanceStart': [balanceStart], 'balanceFinal': [balanceFinal],'nOutflow': [0], 'totalOutflow': [0], 'nInflow': [0], 'totalInflow': [0], 'transactions': [0], 'Amount': [0]})
-        else:
-            ### Save key stats:
-            outflows = subset.loc[subset['Amount'] <0]['Amount']
-            totalOutflow = sum(outflows)
-            nOutflow = len(outflows)
-            
-            inflows  = subset.loc[subset['Amount'] >0]['Amount']
-            totalInflow = sum(inflows)
-            nInflow = len(inflows)
-        
-            transactions = len(subset)
-            change = sum(subset['Amount'])
-            #balanceFinal = balanceStart + change
-            balanceStart = balanceFinal - change
-            newRow = pd.DataFrame({'Date': [date], 'WeeksAgo': [week], 'balanceStart': [balanceStart], 'balanceFinal': [balanceFinal],'nOutflow': [nOutflow], 'totalOutflow': [totalOutflow], 'nInflow': [nInflow], 'totalInflow': [totalInflow], 'transactions': [transactions], 'Amount': [change]})
-    
-        dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
 
-    #startingBalance = -dataframeSummary['balanceFinal'][0]
-    return(dataframeSummary)
-
-summaryCheckA = summarizeWeeks(checkingA, checkingA['Balance'][0])
-summaryCheckS = summarizeWeeks(checkingS, checkingS['Balance'][0])
-summarySavA   = summarizeWeeks(savingsA,  savingsA['Balance'][0])
-summarySavS   = summarizeWeeks(savingsS,  savingsS['Balance'][0])
+summaryCheckA = summarizeWeeks(checkingA, checkingA['Balance'].iloc[0])
+summaryCheckS = summarizeWeeks(checkingS, checkingS['Balance'].iloc[0])
+summarySavA   = summarizeWeeks(savingsA,  savingsA['Balance'].iloc[0])
+summarySavS   = summarizeWeeks(savingsS,  savingsS['Balance'].iloc[0])
 summaryCCA    = summarizeWeeks(creditA,   creditA['Balance'].iloc[0])
 summaryCCS    = summarizeWeeks(creditS,   creditS['Balance'].iloc[0])
 
@@ -326,7 +440,7 @@ fig, ax = plt.subplots()
 plt.gcf().set_size_inches(12, 8)
 ax.plot(summaryChecking['Date'], summaryChecking['balanceFinal'], label = 'Checking', color = 'lightblue', linewidth = 2)
 ax.plot(summarySav['Date'], summarySav['balanceFinal'], label = 'Savings', color = 'lightgreen', linewidth = 2)
-ax.plot(summaryCredit['Date'], summaryCredit['balanceFinal'], label = 'Credit card debt', color = 'orange', linewidth = 1)
+ax.plot(summaryCredit['Date'], summaryCredit['balanceFinal'], label = 'Credit card debt', color = 'tomato', linewidth = 1)
 ax.plot(summaryAll['Date'], summaryAll['balanceFinal'], label = 'All', color = 'navy', linewidth = 4)
 plt.axhline(y = 0, color = 'black', linewidth = 1)
 ax.set_xlabel('Date',  fontsize = 16)
@@ -342,6 +456,10 @@ plt.ylim([-6000,20000])
 ax.xaxis.set_major_locator(plt.MaxNLocator(20))
 ax.legend(loc=2, prop={'size': 12})
 plt.show()
+
+
+
+
 
 ################################################
 ############ IN PROGRESS ######################
