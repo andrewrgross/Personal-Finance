@@ -224,42 +224,6 @@ investVan = investVan.loc[creditS['Date']     > datetime.datetime(2021, 1, 1, 1,
 ####### 3 - Plot
 ### 3.1 - plot
 
-### 3.1.1 - Plot checking account balances
-fig, ax = plt.subplots()
-ax.plot(checkingA['WeeksAgo'], checkingA['Balance'], label = 'Checking, Personal')
-ax.plot(checkingS['WeeksAgo'], checkingS['Balance'], label = 'Checking, Shared')
-ax.set_xlabel('Weeks Ago',  fontsize = 12)
-ax.set_ylabel('Dollars', fontsize = 12)
-ax.set_title('Balance over time', fontsize = 12)
-ax.invert_xaxis()
-ax.legend()
-plt.show()
-
-### 3.1.1 - Plot SAVINGS account balances
-fig, ax = plt.subplots()
-ax.plot(savingsA['WeeksAgo'], savingsA['Balance'], label = 'savings, Personal')
-ax.plot(savingsS['WeeksAgo'], savingsS['Balance'], label = 'savings, Shared')
-ax.set_xlabel('Weeks Ago',  fontsize = 12)
-ax.set_ylabel('Dollars', fontsize = 12)
-ax.set_title('Balance over time', fontsize = 12)
-ax.invert_xaxis()
-plt.xlim([104,0])
-ax.legend()
-plt.show()
-
-### 3.1.1 - Plot CREDIT CARD DEBT balances
-fig, ax = plt.subplots()
-ax.plot(creditA['WeeksAgo'], creditA['Balance'], label = 'Credit card debt, Personal')
-ax.plot(creditS['WeeksAgo'], creditS['Balance'], label = 'Credit card debt, Shared')
-ax.set_xlabel('Weeks Ago',  fontsize = 12)
-ax.set_ylabel('Dollars', fontsize = 12)
-ax.set_title('Balance over time', fontsize = 12)
-ax.invert_xaxis()
-ax.legend()
-plt.axis([104,0, min(creditS['Balance']), max(creditS['Balance'])])
-plt.show()
-
-
 ####### 4 - Analyze changes over time
 ### 4.1 - Find the balance for each source
 balChecking = checkingA['Balance'].iloc[0] + checkingS['Balance'].iloc[0]
@@ -274,16 +238,15 @@ print('Credit Balance: $' + str(balCredit))
 print('Investments Balance: $' + str(balInvest))
 print('TOTAL ACCOUNTS BALANCE: $' + str(balTotal))
 
+
 ### 4.2 - Join ledgers
 checking = pd.concat([checkingA, checkingS], ignore_index = True, axis = 0)
 checking = checking.sort_values(['Date'], ascending = False)
 summaryChecking = summarizeWeeks(checking, balanceFinal = balChecking)
 
-
 savings = pd.concat([savingsA, savingsS], ignore_index = True, axis = 0)
 savings = savings.sort_values(['Date'], ascending = False)
 summarySav = summarizeWeeks(savings, balanceFinal = balSavings)
-
 
 credit = pd.concat([creditA, creditS], ignore_index = True, axis = 0)
 credit = credit.sort_values(['Date'], ascending = False)
@@ -296,8 +259,26 @@ allAccts = pd.concat([checking, savings, credit, invest], ignore_index = True, a
 allAccts = allAccts.sort_values(['Date'], ascending = False)
 summaryAll = summarizeWeeks(allAccts, balanceFinal = balTotal)
 
-### 4.3 - Plots
-###### 4.3.1 - Plot balance total over time
+### 4.3 - Isolate inflow and outflows by source
+####### 4.3.1 - Isolate Amex payments from shared
+
+checkingAb = checkingA.loc[checkingA['Type']!='Transfer']
+checkingSb = checkingS.loc[checkingS['Type']!='Transfer']
+amex = []
+for row in checkingSb['Description']:
+    amex.append('AMEX EPAYMENT' in row)
+checkingSb['Amex'] = amex
+
+summaryCheckingA = summarizeWeeks(checkingAb, balanceFinal = checkingAb['Balance'].iloc[0])
+summaryCheckingS = summarizeWeeks(checkingSb, balanceFinal = checkingS['Balance'].iloc[0])
+summaryCreditA   = summarizeWeeks(creditA, balanceFinal = creditA['Balance'].iloc[0])
+summaryCreditS   = summarizeWeeks(creditS, balanceFinal = creditS['Balance'].iloc[0])
+summaryInOut = pd.concat([summaryCreditS['WeeksAgo'], summaryCheckingA['totalInflow'], summaryCheckingA['totalInflow']+summaryCheckingS['totalInflow'], summaryCreditA['totalOutflow'], summaryCreditA['totalOutflow'] + summaryCreditS['totalOutflow']], axis = 1)
+summaryInOut.columns = ['WeeksAgo', 'incomeA', 'incomeS', 'spendingA', 'spendingS']
+summaryInOut['difference'] = summaryInOut['incomeS'] + summaryInOut['spendingS']
+
+### 4.4 - Plots
+###### 4.4.1 - Plot balance total over time
 fig, ax = plt.subplots(figsize = (12, 8))
 ax.plot(summaryInvest['Date'], summaryInvest['balanceFinal'], label = 'Investments', color = 'wheat')
 ax.plot(summarySav['Date'], summarySav['balanceFinal'], label = 'Savings', color = 'lightgreen')
@@ -322,18 +303,34 @@ plt.ylim([-6000,20000])
 plt.show()
 
 
-###### 4.3.1 - Plot recent weeks
+###### 4.4.2 - Plot recent weeks
+
 fig, ax = plt.subplots(figsize = (12, 8))
-weeksAgo = summaryChecking['WeeksAgo'][0:10]
-checkingIn = summaryChecking['totalInflow'][0:10]
-checkingOut = summaryChecking['totalOutflow'][0:10]
-creditOut = summaryCredit['totalOutflow'][0:10]
-amountAll = summaryAll['balanceFinal'][0:10]
-amountCredit = summaryCredit['balanceFinal'][0:10]
-ax.bar(weeksAgo,checkingIn, color = 'blue')
-ax.bar(weeksAgo,creditOut, color = 'salmon')
+
+weeksAgo = summaryInOut['WeeksAgo'][0:10]
+incomeA = summaryInOut['incomeA'][0:10]
+incomeS = summaryInOut['incomeS'][0:10]
+spendingA = summaryInOut['spendingA'][0:10]
+spendingS = summaryInOut['spendingS'][0:10]
+difference = summaryInOut['difference'][0:10]
+
+ax.bar(weeksAgo,incomeS, color = 'cornflowerblue')
+ax.bar(weeksAgo,incomeA, color = 'mediumblue')
+ax.bar(weeksAgo,spendingS, color = 'firebrick')
+ax.bar(weeksAgo, spendingA, color = 'salmon')
 plt.axhline(y = 0, color = 'black', linewidth = 1)
-plt.axhline(y = 0, color = 'black', linewidth = 1)
+plt.scatter(weeksAgo,difference, color = 'orange', s = 150, zorder = 9)
+for i, label in enumerate(incomeS):
+    plt.text(weeksAgo[i], (incomeS[i]+100), "$"+str(round(label)), size = 14, ha = 'center')
+
+for i, label in enumerate(spendingS):
+    plt.text(weeksAgo[i], (spendingS[i]-300), "$"+str(round(abs(label))), size = 14, ha = 'center')
+    
+#ax.legend(['First line', 'Second line'])
+#colors = {'fruit':'red', 'veggie':'green'}         
+#labels = list(colors.keys())
+#handles = [plt.Rectangle((0,0),1,1, color=colors[label]) for label in labels]
+#plt.legend(handles, labels)
 
 ax.set_xlabel('Weeks Ago',  fontsize = 16)
 ax.set_ylabel('Dollars', fontsize = 16)
@@ -342,10 +339,8 @@ plt.xlim([9,-2])
 plt.show()
 
 
-checkingA['Amount'] > 0
 
-checkingA.loc[checkingA['Amount'] > 0]
-checkingS.loc[checkingS['Amount'] > 0]
+
 
 
 
@@ -579,3 +574,39 @@ for rowNum in range(0,dataframe.shape[0]):
     newRow = pd.DataFrame({'Year' : [year], 'Week' : [week], 'Transactions' : [transactions], 'Inflow' : [inflow], 'Outflow' : [outflow], 'Min-Balance' : [minBalance], 'Max-Balance' : [maxBalance]})
     dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
     
+### 3 - Plotting
+
+### 3.1.1 - Plot checking account balances
+fig, ax = plt.subplots()
+ax.plot(checkingA['WeeksAgo'], checkingA['Balance'], label = 'Checking, Personal')
+ax.plot(checkingS['WeeksAgo'], checkingS['Balance'], label = 'Checking, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+ax.legend()
+plt.show()
+
+### 3.1.1 - Plot SAVINGS account balances
+fig, ax = plt.subplots()
+ax.plot(savingsA['WeeksAgo'], savingsA['Balance'], label = 'savings, Personal')
+ax.plot(savingsS['WeeksAgo'], savingsS['Balance'], label = 'savings, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+plt.xlim([104,0])
+ax.legend()
+plt.show()
+
+### 3.1.1 - Plot CREDIT CARD DEBT balances
+fig, ax = plt.subplots()
+ax.plot(creditA['WeeksAgo'], creditA['Balance'], label = 'Credit card debt, Personal')
+ax.plot(creditS['WeeksAgo'], creditS['Balance'], label = 'Credit card debt, Shared')
+ax.set_xlabel('Weeks Ago',  fontsize = 12)
+ax.set_ylabel('Dollars', fontsize = 12)
+ax.set_title('Balance over time', fontsize = 12)
+ax.invert_xaxis()
+ax.legend()
+plt.axis([104,0, min(creditS['Balance']), max(creditS['Balance'])])
+plt.show()
