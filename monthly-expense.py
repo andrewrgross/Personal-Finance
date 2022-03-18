@@ -95,6 +95,17 @@ def summarizeWeeks(dataframe, balanceFinal):
     #startingBalance = -dataframeSummary['balanceFinal'][0]
     return(dataframeSummary)
 
+def summarizeTwoWeeks(dataframe):
+    dataframeSummary = pd.DataFrame(columns = ['Date', 'WeeksAgo', 'balanceStart', 'balanceFinal','nOutflow', 'totalOutflow', 'nInflow', 'totalInflow', 'transactions', 'Amount'])
+    weekRange = range(min(dataframe['WeeksAgo']), max(dataframe['WeeksAgo']), 2)
+    for week in weekRange:
+        temp = dataframe.iloc[week:week+2, 4:10]
+        temp = temp.sum(axis = 0)
+        newRow = pd.concat([dataframe.iloc[week,0:4], temp], axis = 0).to_frame().T
+        dataframeSummary = pd.concat([dataframeSummary,newRow], ignore_index = True, axis = 0)
+    return(dataframeSummary)
+
+
 ### 1 - Input
 #os.chdir('C:/Users/grossar/Downloads/')
 os.chdir('/home/andrew/Projects/Personal-Finance')
@@ -266,16 +277,28 @@ checkingAb = checkingA.loc[checkingA['Type']!='Transfer']
 checkingSb = checkingS.loc[checkingS['Type']!='Transfer']
 amex = []
 for row in checkingSb['Description']:
-    amex.append('AMEX EPAYMENT' in row)
-checkingSb['Amex'] = amex
+    amex.append(('AMEX EPAYMENT' in row) == False)
+checkingSb = checkingSb.loc[amex]
 
 summaryCheckingA = summarizeWeeks(checkingAb, balanceFinal = checkingAb['Balance'].iloc[0])
 summaryCheckingS = summarizeWeeks(checkingSb, balanceFinal = checkingS['Balance'].iloc[0])
 summaryCreditA   = summarizeWeeks(creditA, balanceFinal = creditA['Balance'].iloc[0])
 summaryCreditS   = summarizeWeeks(creditS, balanceFinal = creditS['Balance'].iloc[0])
-summaryInOut = pd.concat([summaryCreditS['WeeksAgo'], summaryCheckingA['totalInflow'], summaryCheckingA['totalInflow']+summaryCheckingS['totalInflow'], summaryCreditA['totalOutflow'], summaryCreditA['totalOutflow'] + summaryCreditS['totalOutflow']], axis = 1)
-summaryInOut.columns = ['WeeksAgo', 'incomeA', 'incomeS', 'spendingA', 'spendingS']
-summaryInOut['difference'] = summaryInOut['incomeS'] + summaryInOut['spendingS']
+
+summaryCheckingA = summarizeTwoWeeks(summaryCheckingA)
+summaryCheckingS = summarizeTwoWeeks(summaryCheckingS)
+summaryCreditA = summarizeTwoWeeks(summaryCreditA)
+summaryCreditS = summarizeTwoWeeks(summaryCreditS)
+
+WeeksAgo = summaryCreditS['WeeksAgo']
+incomeA = summaryCheckingA['totalInflow']
+incomeS = incomeA + summaryCheckingS['totalInflow']
+spendingA = summaryCreditA['totalOutflow']
+spendingScr = spendingA + summaryCreditS['totalOutflow']
+spendingSch = spendingScr + summaryCheckingS['totalOutflow']
+difference = incomeS + spendingSch
+summaryInOut = pd.concat([WeeksAgo, incomeA, incomeS, spendingA, spendingScr, spendingSch, difference], axis = 1)
+summaryInOut.columns = ['WeeksAgo', 'incomeA', 'incomeS', 'spendingA', 'spendingScr', 'spendingSch', 'difference']
 
 ### 4.4 - Plots
 ###### 4.4.1 - Plot balance total over time
@@ -298,7 +321,7 @@ ax.xaxis.set_major_locator(mdates.MonthLocator())
 ax.yaxis.set_major_locator(mtick.LinearLocator(numticks = 14))
 ax.yaxis.set_major_locator(plt.MaxNLocator(12))
 ax.legend(loc=2, prop={'size': 12})
-plt.xlim([datetime.date(2021, 1, 1),datetime.datetime.now()])
+plt.xlim([datetime.date(2021, 1, 1),datetime.datetime.now()+datetime.timedelta(17)])
 plt.ylim([-6000,20000])
 plt.show()
 
@@ -306,17 +329,19 @@ plt.show()
 ###### 4.4.2 - Plot recent weeks
 
 fig, ax = plt.subplots(figsize = (12, 8))
-
-weeksAgo = summaryInOut['WeeksAgo'][0:10]
-incomeA = summaryInOut['incomeA'][0:10]
-incomeS = summaryInOut['incomeS'][0:10]
-spendingA = summaryInOut['spendingA'][0:10]
-spendingS = summaryInOut['spendingS'][0:10]
-difference = summaryInOut['difference'][0:10]
+xlim = 24
+weeksAgo = summaryInOut['WeeksAgo'][0:xlim]
+incomeA = summaryInOut['incomeA'][0:xlim]
+incomeS = summaryInOut['incomeS'][0:xlim]
+spendingA = summaryInOut['spendingA'][0:xlim]
+spendingS = summaryInOut['spendingScr'][0:xlim]
+spendingSch = summaryInOut['spendingSch'][0:xlim]
+difference = summaryInOut['difference'][0:xlim]
 
 ax.bar(weeksAgo,incomeS, color = 'cornflowerblue')
 ax.bar(weeksAgo,incomeA, color = 'mediumblue')
-ax.bar(weeksAgo,spendingS, color = 'firebrick')
+ax.bar(weeksAgo,spendingSch, color = 'firebrick')
+ax.bar(weeksAgo,spendingS, color = 'maroon')
 ax.bar(weeksAgo, spendingA, color = 'salmon')
 plt.axhline(y = 0, color = 'black', linewidth = 1)
 plt.scatter(weeksAgo,difference, color = 'orange', s = 150, zorder = 9)
@@ -335,8 +360,10 @@ for i, label in enumerate(spendingS):
 ax.set_xlabel('Weeks Ago',  fontsize = 16)
 ax.set_ylabel('Dollars', fontsize = 16)
 ax.set_title('Cashflow', fontsize = 20)
-plt.xlim([9,-2])
+plt.xlim([weeksAgo[xlim-1],-1])
 plt.show()
+
+
 
 
 
